@@ -58,7 +58,11 @@ process ALIGN_CONSENSUS {
         echo "[ALIGN_CONSENSUS] CẢNH BÁO / WARN: mafft không tìm thấy / not found." >&2
         echo "[ALIGN_CONSENSUS] Dùng FASTA chưa căn chỉnh / Using unaligned FASTA." >&2
         echo "[ALIGN_CONSENSUS] Cài đặt / Install: conda install -c bioconda mafft" >&2
-        cp combined_for_alignment.fasta "${sample_id}_aligned.fasta"
+        # [EN] Prepend a FASTA comment line so downstream processes can detect unaligned input
+        # [VI] Thêm dòng ghi chú FASTA để bước sau nhận biết đầu vào chưa căn chỉnh
+        echo "# WARNING: MAFFT not available – sequences below are UNALIGNED / CẢNH BÁO: chưa căn chỉnh" \\
+            > "${sample_id}_aligned.fasta"
+        cat combined_for_alignment.fasta >> "${sample_id}_aligned.fasta"
     fi
     """
 }

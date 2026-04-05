@@ -74,8 +74,10 @@ process ASSIGN_GENOTYPE {
     # [EN] Build BLAST database from reference FASTA (per-task, isolated)
     # [VI] Xây dựng cơ sở dữ liệu BLAST từ FASTA tham chiếu (theo task, độc lập)
     echo "[ASSIGN_GENOTYPE] ${sample_id}: Xây dựng BLAST DB / Building BLAST DB..." >&2
+    # [EN] Redirect both stdout/stderr to log file, consistent with blastn check above
+    # [VI] Chuyển hướng cả stdout/stderr vào log file, nhất quán với kiểm tra blastn
     makeblastdb -in "${reference_fasta}" -dbtype nucl -out blast_refdb \\
-        -title "HBV_genotype_refs" -logfile makeblastdb.log
+        -title "HBV_genotype_refs" >"makeblastdb.log" 2>&1
 
     # [EN] Run BLAST: consensus vs reference panel
     # [VI] Chạy BLAST: đồng thuận so với bộ tham chiếu

@@ -200,7 +200,7 @@ workflow {
     // Chờ tất cả báo cáo hoàn thành và in tóm tắt
     // Wait for all reports to finish and print summary
     GENERATE_REPORT.out.sample_report.collect().view { reports ->
-        log.info "\n[TTA_HBV-OBI] ✅ Pipeline hoàn thành / Pipeline complete."
+        log.info "\n[TTA_HBV-OBI] [OK] Pipeline hoàn thành / Pipeline complete."
         log.info "[TTA_HBV-OBI]    ${reports.size()} mẫu / sample(s) đã xử lý / processed."
         log.info "[TTA_HBV-OBI]    Kết quả lưu tại / Results in: ${params.outdir}"
     }
@@ -208,7 +208,7 @@ workflow {
 
 // ─── Sự kiện hoàn thành pipeline / Pipeline completion event ────────────────
 workflow.onComplete {
-    def status = workflow.success ? "THÀNH CÔNG / SUCCESS ✅" : "THẤT BẠI / FAILED ❌"
+    def status = workflow.success ? "THANH CONG / SUCCESS [OK]" : "THAT BAI / FAILED [FAIL]"
     log.info """
     ──────────────────────────────────────────────────────────────
     [TTA_HBV-OBI] Kết quả / Result  : ${status}
