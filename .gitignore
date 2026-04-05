@@ -1,0 +1,59 @@
+# Nextflow work directory and cache
+work/
+.nextflow/
+.nextflow.log*
+.nextflow.pid
+
+# Output directories (user-generated)
+results/
+output/
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+*.egg
+.eggs/
+.venv/
+venv/
+ENV/
+
+# Conda/micromamba environments
+.conda/
+*.tar.bz2
+*.conda
+
+# Editor / OS files
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*~
+.idea/
+.vscode/
+
+# Jupyter
+.ipynb_checkpoints/
+*.ipynb
+
+# Test artifacts
+.pytest_cache/
+htmlcov/
+.coverage
+
+# Large binary reference files (check in separately or via DVC)
+data/references/*.fasta
+data/references/*.fa
+data/references/*.fas
+data/references/*.gb
+data/references/*.gbk
+!data/references/PLACEHOLDER.md
+
+# ABI raw files (may be large; store externally if needed)
+# Uncomment the line below if .ab1 files should NOT be committed:
+# data/**/*.ab1

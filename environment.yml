@@ -1,0 +1,30 @@
+name: hbv-obi
+channels:
+  - bioconda
+  - conda-forge
+  - defaults
+dependencies:
+  # Python
+  - python=3.11
+  - pip
+  # Biopython for ABI parsing and sequence manipulation
+  - biopython>=1.81
+  # Data handling
+  - pandas>=2.0
+  - numpy>=1.24
+  # Report generation
+  - jinja2>=3.1
+  # CLI utilities
+  - click>=8.1
+  # Bioinformatics tools
+  - mafft>=7.520
+  - iqtree>=2.2
+  - blast>=2.14
+  # Java is required for Nextflow
+  - openjdk>=17
+  # Testing
+  - pytest>=7.4
+  - pytest-cov
+  # Optional: prettier HTML reports
+  - pip:
+    - altair>=5.0

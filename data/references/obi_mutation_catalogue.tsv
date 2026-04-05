@@ -1,0 +1,52 @@
+aa_positionref_aaalt_aaregionmechanismevidence_levelnotes
+100YSa_determinantimmune_escapeAY100S; reported in OBI/vaccine escape; PMC6784188
+100YCa_determinantimmune_escapeAY100C; disulfide bond disruption; PMC6784188
+101QRa_determinantimmune_escapeBQ101R; MHR alteration; PMC6784188
+105PRa_determinantimmune_escapeBP105R; MHR alteration; PMC6784188
+115TNa_determinantglycosylation_gainBT115N; adds N-X-S/T motif; diagnostic escape
+116TNa_determinantglycosylation_gainBT116N; HBsAg detection impairment; PMC6784188
+119GRa_determinantimmune_escapeBG119R; PMC6784188
+120PLa_determinantimmune_escapeAP120L; reduced HBsAg detection; PMC6784188
+120PTa_determinantimmune_escapeBP120T; PMC6784188
+122KRa_determinantimmune_escapeBK122R; context-dependent polymorphism
+122RPa_determinantimmune_escapeAR122P; immune escape; PMC6784188
+123TNa_determinantglycosylation_gainBT123N; new NxS/T motif; PMC6784188
+124CRa_determinantimmune_escapeAC124R; disrupts disulfide bridge; PMC6784188
+124CYa_determinantimmune_escapeAC124Y; disulfide disruption; PMC6784188
+125TMa_determinantimmune_escapeBT125M; PMC9325327
+126TIa_determinantimmune_escapeAT126I; frequent vaccine escape mutation; PMC6784188
+126TSa_determinantimmune_escapeAT126S; diagnostic escape; PMC6784188
+126ITa_determinantimmune_escapeBI126T; PMC9325327
+126IMa_determinantimmune_escapeBI126M; PMC9325327
+127PHa_determinantimmune_escapeBP127H; PMC6784188
+127PLa_determinantimmune_escapeBP127L; PMC6784188
+129QPa_determinantimmune_escapeAQ129P; reduces HBsAg reactivity; PMC6784188
+129QRa_determinantimmune_escapeAQ129R; highly recurrent in OBI; PMC6784188
+129QLa_determinantimmune_escapeBQ129L; PMC9325327
+133MTa_determinantimmune_escapeAM133T; frequent in OBI; PMC6784188
+133MLa_determinantimmune_escapeBM133L; PMC9325327
+134FIa_determinantimmune_escapeBF134I; PMC9325327
+134FLa_determinantimmune_escapeBF134L; PMC9325327
+134FRa_determinantimmune_escapeBF134R; PMC9325327
+134YCa_determinantimmune_escapeAY134C; frequent OBI variant; PMC6784188
+136SPa_determinantimmune_escapeBS136P; PMC6784188
+139CRa_determinantimmune_escapeAC139R; disulfide disruption; PMC6784188
+140TIa_determinantimmune_escapeBT140I; PMC6784188
+141KEa_determinantimmune_escapeBK141E; PMC6784188
+143SLa_determinantimmune_escapeBS143L; PMC6784188
+144DAa_determinantimmune_escapeAD144A; highly recurrent vaccine/immune escape; PMC6784188
+144DEa_determinantimmune_escapeAD144E; diagnostic escape; PMC6784188
+144DNa_determinantimmune_escapeAD144N; diagnostic escape; PMC6784188
+145GRa_determinantimmune_escapeAG145R; classical vaccine escape mutation; PMC6784188
+145GAa_determinantimmune_escapeAG145A; frequent OBI/vaccine escape; PMC6784188
+145GKa_determinantimmune_escapeAG145K; PMC6784188
+40NSMHRHBsAg_expression_alterationBN40S; PMC9325327
+167SLMHRimmune_escapeBS167L; outside a-det but within MHR; PMC6784188
+169RHMHRimmune_escapeBR169H; PMC6784188
+174SNMHRimmune_escapeBS174N; PMC6784188
+175LSMHRimmune_escapeBL175S; PMC6784188
+177VAMHRimmune_escapeBV177A; recurrent in OBI studies; PMC9325327
+181Q*Struncation_of_HBsAgAQ181Stop; premature stop codon; PMC6784188
+1MIpreS2reduced_LHBsAg_expressionApreS2 M1I; loss of preS2 initiation codon; PMC4868315
+1MTpreS2reduced_LHBsAg_expressionApreS2 M1T; PMC4868315
+1MVpreS2reduced_LHBsAg_expressionBpreS2 M1V; PMC4868315
