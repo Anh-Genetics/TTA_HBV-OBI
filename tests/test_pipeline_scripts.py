@@ -611,7 +611,9 @@ class TestGenerateReport:
             consensus_rows=[],
             generated_at="2026-01-01 00:00:00 UTC",
         )
-        assert "# HBV-OBI Sanger Analysis Report" in content
+        # [EN] Header is now bilingual VI/EN
+        # [VI] Tiêu đề song ngữ VI/EN
+        assert "HBV-OBI Sanger Analysis Report" in content
         assert "S001" in content
         assert "ATCGATCG" in content
 

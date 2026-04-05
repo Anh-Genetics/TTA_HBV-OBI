@@ -2,32 +2,34 @@
 """
 generate_report.py
 ==================
-Generate a per-sample analysis report in HTML, TSV, or Markdown format.
+[EN] Generate a per-sample analysis report (HTML, TSV, or Markdown) summarising:
+     - Read QC / trimming statistics
+     - Consensus assembly quality
+     - HBV genotype assignment
+     - OBI-associated variant annotation with evidence classification
+     - Clinical interpretation notes (for research use only)
 
-Inputs
-------
-  --consensus      : per-sample consensus FASTA
-  --genotype       : genotype assignment TSV
-  --variants       : variant annotation TSV
-  --trim-stats     : trimming statistics TSV
-  --consensus-stats: consensus building statistics TSV
-  --format         : output format (html | tsv | markdown)
+[VI] Tạo báo cáo phân tích cho từng mẫu (HTML, TSV hoặc Markdown) tóm tắt:
+     - Thống kê QC/cắt tỉa đoạn đọc
+     - Chất lượng lắp ráp trình tự đồng thuận
+     - Gán genotype HBV
+     - Chú thích biến thể liên quan OBI kèm xếp hạng bằng chứng
+     - Ghi chú diễn giải lâm sàng (chỉ dùng cho nghiên cứu)
 
-Output
-------
-  A single file per sample (HTML, TSV, or Markdown) summarising all analysis
-  results in a structured, reviewable format.
+[EN] Each sample runs in its own isolated process → no shared-file race conditions.
+[VI] Mỗi mẫu chạy trong tiến trình riêng → không xảy ra xung đột ghi tệp.
 
-Usage:
-  generate_report.py \\
-      --sample-id S001 \\
-      --consensus S001_consensus.fasta \\
-      --genotype S001_genotype.tsv \\
-      --variants S001_variants.tsv \\
-      --trim-stats S001_trim_stats.tsv \\
-      --consensus-stats S001_consensus_stats.tsv \\
-      --format html \\
-      --out S001_report.html
+[EN] Usage:
+  generate_report.py --sample-id S001 --consensus S001_consensus.fasta \\
+      --genotype S001_genotype.tsv --variants S001_variants.tsv \\
+      --trim-stats S001_trim_stats.tsv --consensus-stats S001_consensus_stats.tsv \\
+      --format html --out S001_report.html
+
+[VI] Cách dùng:
+  generate_report.py --sample-id M001 --consensus M001_consensus.fasta \\
+      --genotype M001_genotype.tsv --variants M001_variants.tsv \\
+      --trim-stats M001_trim_stats.tsv --consensus-stats M001_consensus_stats.tsv \\
+      --format html --out M001_report.html
 """
 
 import argparse
@@ -37,20 +39,50 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 
+def _progress(msg: str):
+    """
+    [EN] Print a timestamped progress message to stderr.
+    [VI] In thông báo tiến trình có dấu thời gian ra stderr.
+    """
+    ts = datetime.now(timezone.utc).strftime("%H:%M:%S")
+    print(f"  [{ts}] {msg}", file=sys.stderr)
+
+
 def parse_args():
-    p = argparse.ArgumentParser(description="Generate per-sample HBV-OBI analysis report.")
-    p.add_argument("--sample-id",       required=True, dest="sample_id")
-    p.add_argument("--consensus",       required=True)
-    p.add_argument("--genotype",        required=True)
-    p.add_argument("--variants",        required=True)
-    p.add_argument("--trim-stats",      required=True, dest="trim_stats")
-    p.add_argument("--consensus-stats", required=True, dest="consensus_stats")
-    p.add_argument("--format",          choices=["html", "tsv", "markdown"], default="html")
-    p.add_argument("--out",             required=True)
+    """
+    [EN] Parse command-line arguments.
+    [VI] Phân tích tham số dòng lệnh.
+    """
+    p = argparse.ArgumentParser(
+        description=(
+            "[EN] Generate per-sample HBV-OBI analysis report.\n"
+            "[VI] Tạo báo cáo phân tích HBV-OBI cho từng mẫu."
+        )
+    )
+    p.add_argument("--sample-id",       required=True, dest="sample_id",
+                   help="[EN] Sample identifier / [VI] Mã mẫu")
+    p.add_argument("--consensus",       required=True,
+                   help="[EN] Consensus FASTA / [VI] FASTA đồng thuận")
+    p.add_argument("--genotype",        required=True,
+                   help="[EN] Genotype assignment TSV / [VI] TSV gán genotype")
+    p.add_argument("--variants",        required=True,
+                   help="[EN] Variant annotation TSV / [VI] TSV chú thích biến thể")
+    p.add_argument("--trim-stats",      required=True, dest="trim_stats",
+                   help="[EN] Trimming statistics TSV / [VI] TSV thống kê cắt tỉa")
+    p.add_argument("--consensus-stats", required=True, dest="consensus_stats",
+                   help="[EN] Consensus statistics TSV / [VI] TSV thống kê đồng thuận")
+    p.add_argument("--format",          choices=["html", "tsv", "markdown"], default="html",
+                   help="[EN] Output format / [VI] Định dạng đầu ra")
+    p.add_argument("--out",             required=True,
+                   help="[EN] Output report file / [VI] Tệp báo cáo đầu ra")
     return p.parse_args()
 
 
 def read_tsv(path: str) -> list[dict]:
+    """
+    [EN] Read a TSV file into a list of dicts.
+    [VI] Đọc tệp TSV thành danh sách dict.
+    """
     rows = []
     try:
         with open(path, newline="", encoding="utf-8") as fh:
@@ -63,7 +95,10 @@ def read_tsv(path: str) -> list[dict]:
 
 
 def read_fasta_first(path: str) -> tuple[str, str]:
-    """Return (header, sequence) of the first record."""
+    """
+    [EN] Return (header, sequence) of the first FASTA record.
+    [VI] Trả về (tiêu_đề, trình_tự) của bản ghi FASTA đầu tiên.
+    """
     header, parts = "", []
     try:
         with open(path, encoding="utf-8") as fh:
@@ -80,11 +115,19 @@ def read_fasta_first(path: str) -> tuple[str, str]:
 
 
 def evidence_badge(level: str) -> str:
-    """Return an HTML badge string for evidence level A/B/C."""
+    """
+    [EN] Return an HTML badge string for evidence level A/B/C.
+         A=Strong/Mạnh, B=Moderate/Vừa, C=Weak-Novel/Yếu-Mới
+    [VI] Trả về chuỗi HTML badge cho mức bằng chứng A/B/C.
+    """
     colours = {"A": "#d32f2f", "B": "#f57c00", "C": "#388e3c"}
-    labels = {"A": "Strong", "B": "Moderate", "C": "Weak/Novel"}
+    labels  = {
+        "A": "Strong / Mạnh",
+        "B": "Moderate / Vừa",
+        "C": "Weak/Novel / Yếu-Mới",
+    }
     colour = colours.get(level.upper(), "#757575")
-    label = labels.get(level.upper(), level)
+    label  = labels.get(level.upper(), level)
     return (
         f'<span style="background:{colour};color:#fff;padding:2px 6px;'
         f'border-radius:3px;font-size:0.85em;">{label}</span>'
@@ -101,18 +144,22 @@ def generate_html(
     consensus_rows: list[dict],
     generated_at: str,
 ) -> str:
-    gt_row = genotype_rows[0] if genotype_rows else {}
-    gt = gt_row.get("genotype", "N/A")
-    subgt = gt_row.get("subgenotype", "")
-    gt_conf = gt_row.get("confidence", "N/A")
-    gt_pct = gt_row.get("pct_identity", "N/A")
+    """
+    [EN] Generate a styled HTML report for a single sample.
+    [VI] Tạo báo cáo HTML có định dạng cho một mẫu.
+    """
+    gt_row   = genotype_rows[0] if genotype_rows else {}
+    gt       = gt_row.get("genotype", "N/A")
+    subgt    = gt_row.get("subgenotype", "")
+    gt_conf  = gt_row.get("confidence", "N/A")
+    gt_pct   = gt_row.get("pct_identity", "N/A")
 
-    cs_row = consensus_rows[0] if consensus_rows else {}
-    cons_len = cs_row.get("consensus_length", len(cons_seq))
-    cons_method = cs_row.get("method", "N/A")
-    n_conflicts = cs_row.get("conflict_positions", "0")
+    cs_row       = consensus_rows[0] if consensus_rows else {}
+    cons_len     = cs_row.get("consensus_length", len(cons_seq))
+    cons_method  = cs_row.get("method", "N/A")
+    n_conflicts  = cs_row.get("conflict_positions", "0")
 
-    # Build variant table rows
+    # ── Xây dựng bảng biến thể / Build variant table ─────────────────────────
     var_html = ""
     if variant_rows:
         for v in variant_rows:
@@ -127,15 +174,15 @@ def generate_html(
               <td>{v.get('notes','')}</td>
             </tr>"""
     else:
-        var_html = "<tr><td colspan='6'><em>No variants annotated</em></td></tr>"
+        var_html = "<tr><td colspan='6'><em>No variants annotated / Không có biến thể nào được chú thích</em></td></tr>"
 
-    # Build trim stats
+    # ── Xây dựng bảng thống kê cắt tỉa / Build trim stats table ─────────────
     trim_html = ""
     for t in trim_rows:
         status_col = (
-            '<td style="color:green">PASS</td>'
+            '<td style="color:green">PASS ✅</td>'
             if t.get("qc_status") == "PASS"
-            else '<td style="color:red">FAIL</td>'
+            else '<td style="color:red">FAIL ❌</td>'
         )
         trim_html += f"""
         <tr>
@@ -147,14 +194,16 @@ def generate_html(
           {status_col}
         </tr>"""
 
+    # ── Xác định cờ tổng quan / Determine overall flag ───────────────────────
+    has_level_a = any(v.get("evidence_level") == "A" for v in variant_rows)
     overall_flag = (
-        "⚠️ Review recommended"
-        if any(v.get("evidence_level") == "A" for v in variant_rows)
-        else "✅ No high-priority variants detected"
+        "⚠️ Cần xem xét / Review recommended"
+        if has_level_a
+        else "✅ Không phát hiện biến thể ưu tiên cao / No high-priority variants detected"
     )
 
     return f"""<!DOCTYPE html>
-<html lang="en">
+<html lang="vi">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -180,66 +229,69 @@ def generate_html(
 </head>
 <body>
 
-<h1>HBV-OBI Sanger Analysis Report</h1>
-<p><strong>Sample ID:</strong> {sample_id} &nbsp;|&nbsp;
-   <strong>Generated:</strong> {generated_at} &nbsp;|&nbsp;
+<h1>Báo cáo Phân tích HBV-OBI / HBV-OBI Sanger Analysis Report</h1>
+<p><strong>Mã mẫu / Sample ID:</strong> {sample_id} &nbsp;|&nbsp;
+   <strong>Tạo lúc / Generated:</strong> {generated_at} &nbsp;|&nbsp;
    <strong>Pipeline:</strong> TTA_HBV-OBI v0.1.0-MVP</p>
 
-<div class="{'flag-warn' if '⚠️' in overall_flag else 'flag-ok'}">
+<div class="{'flag-warn' if has_level_a else 'flag-ok'}">
   {overall_flag}
 </div>
 
-<h2>1. Summary</h2>
+<h2>1. Tóm tắt / Summary</h2>
 <table>
-  <tr><th>Parameter</th><th>Value</th></tr>
+  <tr><th>Thông số / Parameter</th><th>Giá trị / Value</th></tr>
   <tr><td>Genotype</td><td><strong>{gt}{(' / ' + subgt) if subgt else ''}</strong></td></tr>
-  <tr><td>Genotype confidence</td><td>{gt_conf}</td></tr>
-  <tr><td>% Identity (BLAST)</td><td>{gt_pct}</td></tr>
-  <tr><td>Consensus length (bp)</td><td>{cons_len}</td></tr>
-  <tr><td>Assembly method</td><td>{cons_method}</td></tr>
-  <tr><td>Conflict positions</td><td>{n_conflicts}</td></tr>
-  <tr><td>Annotated variants</td><td>{len(variant_rows)}</td></tr>
+  <tr><td>Độ tin cậy genotype / Genotype confidence</td><td>{gt_conf}</td></tr>
+  <tr><td>% Đồng nhất BLAST / % Identity (BLAST)</td><td>{gt_pct}</td></tr>
+  <tr><td>Độ dài đồng thuận / Consensus length (bp)</td><td>{cons_len}</td></tr>
+  <tr><td>Phương pháp lắp ráp / Assembly method</td><td>{cons_method}</td></tr>
+  <tr><td>Vị trí xung đột / Conflict positions</td><td>{n_conflicts}</td></tr>
+  <tr><td>Biến thể được chú thích / Annotated variants</td><td>{len(variant_rows)}</td></tr>
 </table>
 
-<h2>2. Read QC / Trimming</h2>
+<h2>2. QC / Cắt tỉa đoạn đọc / Read QC / Trimming</h2>
 <table>
-  <tr><th>Direction</th><th>Raw length</th><th>Trimmed length</th>
-      <th>Mean Q</th><th>Ambiguous bases</th><th>Status</th></tr>
-  {trim_html if trim_html else '<tr><td colspan="6"><em>No trim stats available</em></td></tr>'}
+  <tr><th>Hướng / Direction</th><th>Độ dài thô / Raw (bp)</th>
+      <th>Sau cắt / Trimmed (bp)</th><th>Q TB / Mean Q</th>
+      <th>Base mơ hồ / Ambiguous</th><th>Trạng thái / Status</th></tr>
+  {trim_html if trim_html else '<tr><td colspan="6"><em>Không có dữ liệu / No data</em></td></tr>'}
 </table>
 
-<h2>3. Genotype Assignment</h2>
+<h2>3. Gán Genotype / Genotype Assignment</h2>
 <table>
-  <tr><th>Genotype</th><th>Subgenotype</th><th>% Identity</th>
-      <th>Best BLAST hit</th><th>Confidence</th><th>Note</th></tr>
+  <tr><th>Genotype</th><th>Subgenotype</th><th>%ID</th>
+      <th>BLAST hit tốt nhất / Best hit</th><th>Độ tin cậy / Confidence</th><th>Ghi chú / Note</th></tr>
   {''.join(
       f"<tr><td>{r.get('genotype','')}</td><td>{r.get('subgenotype','')}</td>"
       f"<td>{r.get('pct_identity','')}</td><td>{r.get('blast_hit','')}</td>"
       f"<td>{r.get('confidence','')}</td><td>{r.get('note','')}</td></tr>"
       for r in genotype_rows
-  ) if genotype_rows else '<tr><td colspan="6"><em>No genotype data</em></td></tr>'}
+  ) if genotype_rows else '<tr><td colspan="6"><em>Không có dữ liệu / No data</em></td></tr>'}
 </table>
 
-<h2>4. OBI-Associated Variant Annotation</h2>
+<h2>4. Chú thích biến thể OBI / OBI-Associated Variant Annotation</h2>
 <table>
-  <tr><th>Notation</th><th>Domain</th><th>Mechanism</th>
-      <th>Evidence</th><th>Catalogued</th><th>Notes</th></tr>
+  <tr><th>Ký hiệu / Notation</th><th>Vùng / Domain</th>
+      <th>Cơ chế / Mechanism</th><th>Bằng chứng / Evidence</th>
+      <th>Trong danh mục / Catalogued</th><th>Ghi chú / Notes</th></tr>
   {var_html}
 </table>
 
-<h2>5. Consensus Sequence</h2>
-<pre>{cons_seq if cons_seq else '(empty – read QC failed)'}</pre>
+<h2>5. Trình tự đồng thuận / Consensus Sequence</h2>
+<pre>{cons_seq if cons_seq else '(trống – QC đọc thất bại / empty – read QC failed)'}</pre>
 
 <div class="disclaimer">
-  <strong>⚠️ Disclaimer / Limitations (MVP)</strong><br>
-  This report is generated by the TTA_HBV-OBI pipeline v0.1.0-MVP and is intended
-  for research purposes only. It is <strong>not a clinical diagnostic tool</strong>.<br>
-  • Genotype assignment is based on BLAST alignment against a curated reference panel;
-    phylogenetic tree confirmation is not performed automatically.<br>
-  • OBI variant interpretation is based on published literature; novel variants are
-    flagged as Evidence Level C (weak/novel) and require independent validation.<br>
-  • Minor variants and quasispecies are not detectable from Sanger data alone.<br>
-  • HBV domain coordinates are approximate (based on genotype A reference NC_003977.2).
+  <strong>⚠️ Tuyên bố miễn trách / Disclaimer &amp; Limitations (MVP)</strong><br>
+  <strong>[VI]</strong> Báo cáo này được tạo bởi pipeline TTA_HBV-OBI v0.1.0-MVP
+  chỉ dành cho mục đích nghiên cứu. Đây <strong>không phải</strong> công cụ chẩn đoán lâm sàng.<br>
+  • Gán genotype dựa trên BLAST; không dựng cây phân loài tự động.<br>
+  • Diễn giải biến thể OBI dựa trên tài liệu đã công bố; biến thể mới xếp mức C.<br>
+  • Sanger sequencing không phát hiện được biến thể minor trong quasispecies.<br>
+  • Tọa độ vùng HBV dựa trên NC_003977.2 (genotype A), gần đúng cho các genotype khác.<br><br>
+  <strong>[EN]</strong> For research use only. Genotype is BLAST pre-screen only.
+  OBI variants are literature-based; novel variants are Evidence Level C.
+  Sanger cannot detect minor variants. Domain coordinates are approximate.
 </div>
 
 <footer>TTA_HBV-OBI pipeline &nbsp;|&nbsp; {generated_at}</footer>
@@ -255,33 +307,36 @@ def generate_tsv(
     consensus_rows: list[dict],
     generated_at: str,
 ) -> str:
+    """
+    [EN] Generate a plain TSV report (sections separated by headers).
+    [VI] Tạo báo cáo TSV đơn giản (các phần phân tách bằng tiêu đề).
+    """
     lines = [
-        f"# TTA_HBV-OBI Analysis Report\t{sample_id}\t{generated_at}",
+        f"# Báo cáo Phân tích HBV-OBI / TTA_HBV-OBI Analysis Report\t{sample_id}\t{generated_at}",
         "",
         "## GENOTYPE",
     ]
     if genotype_rows:
-        hdr = "\t".join(genotype_rows[0].keys())
-        lines.append(hdr)
+        lines.append("\t".join(genotype_rows[0].keys()))
         for r in genotype_rows:
             lines.append("\t".join(str(v) for v in r.values()))
-    lines += ["", "## QC_TRIM_STATS"]
+    lines += ["", "## QC_TRIM_STATS / THỐNG KÊ CẮT TỈA"]
     if trim_rows:
         lines.append("\t".join(trim_rows[0].keys()))
         for r in trim_rows:
             lines.append("\t".join(str(v) for v in r.values()))
-    lines += ["", "## CONSENSUS_STATS"]
+    lines += ["", "## CONSENSUS_STATS / THỐNG KÊ ĐỒNG THUẬN"]
     if consensus_rows:
         lines.append("\t".join(consensus_rows[0].keys()))
         for r in consensus_rows:
             lines.append("\t".join(str(v) for v in r.values()))
-    lines += ["", "## VARIANTS"]
+    lines += ["", "## VARIANTS / BIẾN THỂ"]
     if variant_rows:
         lines.append("\t".join(variant_rows[0].keys()))
         for r in variant_rows:
             lines.append("\t".join(str(v) for v in r.values()))
     else:
-        lines.append("# No variants annotated")
+        lines.append("# Không có biến thể / No variants annotated")
     return "\n".join(lines) + "\n"
 
 
@@ -294,75 +349,103 @@ def generate_markdown(
     consensus_rows: list[dict],
     generated_at: str,
 ) -> str:
-    gt_row = genotype_rows[0] if genotype_rows else {}
-    gt = gt_row.get("genotype", "N/A")
-    subgt = gt_row.get("subgenotype", "")
+    """
+    [EN] Generate a Markdown report for a single sample.
+    [VI] Tạo báo cáo Markdown cho một mẫu.
+    """
+    gt_row  = genotype_rows[0] if genotype_rows else {}
+    gt      = gt_row.get("genotype", "N/A")
+    subgt   = gt_row.get("subgenotype", "")
     gt_conf = gt_row.get("confidence", "N/A")
 
     def table_md(rows: list[dict]) -> str:
+        """Tạo bảng Markdown / Build Markdown table."""
         if not rows:
-            return "_No data_\n"
-        keys = list(rows[0].keys())
-        header = "| " + " | ".join(keys) + " |"
+            return "_Không có dữ liệu / No data_\n"
+        keys      = list(rows[0].keys())
+        header    = "| " + " | ".join(keys) + " |"
         separator = "| " + " | ".join("---" for _ in keys) + " |"
-        body = "\n".join(
+        body      = "\n".join(
             "| " + " | ".join(str(r.get(k, "")) for k in keys) + " |"
             for r in rows
         )
         return f"{header}\n{separator}\n{body}\n"
 
-    return f"""# HBV-OBI Sanger Analysis Report – {sample_id}
+    return f"""# Báo cáo Phân tích HBV-OBI / HBV-OBI Sanger Analysis Report – {sample_id}
 
-**Generated:** {generated_at}  
+**Tạo lúc / Generated:** {generated_at}
 **Pipeline:** TTA_HBV-OBI v0.1.0-MVP
 
 ---
 
-## Summary
+## Tóm tắt / Summary
 
-| Parameter | Value |
+| Thông số / Parameter | Giá trị / Value |
 |---|---|
 | Genotype | **{gt}{' / ' + subgt if subgt else ''}** |
-| Confidence | {gt_conf} |
-| Variants | {len(variant_rows)} |
-| Consensus length | {len(cons_seq)} bp |
+| Độ tin cậy / Confidence | {gt_conf} |
+| Số biến thể / Variants | {len(variant_rows)} |
+| Độ dài đồng thuận / Consensus length | {len(cons_seq)} bp |
 
 ---
 
-## Read QC / Trimming
+## QC / Cắt tỉa đoạn đọc / Read Trimming
 
 {table_md(trim_rows)}
 
-## Genotype Assignment
+## Gán genotype / Genotype Assignment
 
 {table_md(genotype_rows)}
 
-## OBI Variant Annotation
+## Chú thích biến thể OBI / OBI Variant Annotation
 
-{table_md(variant_rows) if variant_rows else '_No variants annotated._'}
+{table_md(variant_rows) if variant_rows else '_Không có biến thể / No variants annotated._'}
 
-## Consensus Sequence
+## Trình tự đồng thuận / Consensus Sequence
 
 ```
-{cons_seq if cons_seq else '(empty)'}
+{cons_seq if cons_seq else '(trống / empty)'}
 ```
 
 ---
 
-> **Disclaimer:** Research use only. See README for full limitations.
+> **Tuyên bố miễn trách / Disclaimer:** Chỉ dùng cho nghiên cứu / Research use only. See README for full limitations.
 """
 
 
 def main():
-    args = parse_args()
+    args         = parse_args()
     generated_at = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
 
-    _, cons_seq = read_fasta_first(args.consensus)
-    genotype_rows = read_tsv(args.genotype)
-    variant_rows  = read_tsv(args.variants)
-    trim_rows     = read_tsv(args.trim_stats)
-    cons_rows     = read_tsv(args.consensus_stats)
+    _progress(
+        f"[generate_report] === Bắt đầu tạo báo cáo / Starting report generation: "
+        f"{args.sample_id} (định dạng / format={args.format}) ==="
+    )
 
+    # ─── Bước 1: Đọc tất cả dữ liệu đầu vào / Step 1: Load all inputs ───────
+    _progress(f"[generate_report] Đọc dữ liệu đầu vào / Loading inputs...")
+    _, cons_seq      = read_fasta_first(args.consensus)
+    genotype_rows    = read_tsv(args.genotype)
+    variant_rows     = read_tsv(args.variants)
+    trim_rows        = read_tsv(args.trim_stats)
+    cons_rows        = read_tsv(args.consensus_stats)
+
+    _progress(
+        f"[generate_report] Dữ liệu: genotype={len(genotype_rows)} hàng, "
+        f"biến thể / variants={len(variant_rows)}, "
+        f"cắt tỉa / trim={len(trim_rows)} đoạn đọc / read(s)"
+    )
+
+    # Cảnh báo biến thể mức A / Warn about Level-A variants
+    level_a = [v.get("notation","") for v in variant_rows if v.get("evidence_level") == "A"]
+    if level_a:
+        _progress(
+            f"[generate_report] *** CẢNH BÁO / ALERT: {len(level_a)} biến thể mức A / "
+            f"Level-A variant(s) detected: {', '.join(level_a)} ***"
+        )
+
+    # ─── Bước 2: Tạo nội dung báo cáo / Step 2: Generate report content ─────
+    _progress(f"[generate_report] Tạo nội dung báo cáo / Generating {args.format} content...")
     fmt = args.format.lower()
     if fmt == "html":
         content = generate_html(
@@ -379,12 +462,13 @@ def main():
             genotype_rows, variant_rows, trim_rows, cons_rows, generated_at,
         )
 
+    # ─── Bước 3: Ghi tệp báo cáo / Step 3: Write report file ────────────────
     with open(args.out, "w", encoding="utf-8") as fh:
         fh.write(content)
 
-    print(
-        f"[generate_report] {args.sample_id}: report written to {args.out} ({fmt})",
-        file=sys.stderr,
+    _progress(
+        f"[generate_report] === Báo cáo đã ghi / Report written: {args.out} "
+        f"({fmt}, {len(content)} ký tự / chars) ==="
     )
 
 

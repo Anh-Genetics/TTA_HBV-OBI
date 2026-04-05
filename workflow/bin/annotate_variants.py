@@ -2,104 +2,140 @@
 """
 annotate_variants.py
 ====================
-Annotate variants in an HBV consensus sequence against the OBI-associated
-mutation catalogue and HBV ORF annotations.
+[EN] Annotate variants in an HBV consensus sequence against:
+     1. The OBI-associated mutation catalogue (evidence-graded A/B/C).
+     2. HBV ORF/domain coordinate map (pre-S1, pre-S2, S, MHR, a-determinant).
 
-Steps
------
-1. Read the multiple sequence alignment (consensus + references) produced by MAFFT.
-2. Identify the reference row (any sequence with 'REFERENCE' or 'REF' in its ID).
-   Fall back to the first non-sample sequence.
-3. Map each position in the alignment back to the HBsAg / S-gene coordinate system.
-4. Translate the consensus S-gene (and pre-S1, pre-S2) using the expected reading frames.
-5. Identify AA changes versus the reference; look them up in the OBI catalogue.
-6. Output a TSV with one row per variant.
+[VI] Chú thích biến thể trong trình tự đồng thuận HBV dựa trên:
+     1. Danh mục đột biến liên quan OBI (bằng chứng xếp hạng A/B/C).
+     2. Bản đồ tọa độ ORF/vùng HBV (pre-S1, pre-S2, S, MHR, vùng a-determinant).
 
-NOTE (MVP):
-  - Domain coordinates (pre-S1, pre-S2, S, MHR, a-determinant) are approximate
-    and based on genotype A reference NC_003977. For other genotypes the
-    alignment-based remapping provides best-effort coordinates.
-  - The script handles short/partial sequences gracefully but will flag them.
+[EN] Steps:
+     1. Read MAFFT alignment (consensus + references).
+     2. Identify reference row (by accession patterns).
+     3. Translate S, pre-S2, pre-S1 ORFs in the consensus.
+     4. Identify AA changes vs reference.
+     5. Look up in OBI catalogue; output one TSV row per variant.
 
-Usage:
-  annotate_variants.py \\
-      --sample-id S001 \\
-      --consensus S001_consensus.fasta \\
-      --alignment S001_aligned.fasta \\
-      --mutation-db obi_mutation_catalogue.tsv \\
-      --out-tsv S001_variants.tsv
+[VI] Các bước:
+     1. Đọc alignment MAFFT (đồng thuận + tham chiếu).
+     2. Xác định hàng tham chiếu (theo mẫu số hiệu).
+     3. Dịch mã ORF S, pre-S2, pre-S1 trong đồng thuận.
+     4. Xác định thay đổi amino acid so với tham chiếu.
+     5. Tra cứu trong danh mục OBI; xuất một hàng TSV mỗi biến thể.
+
+[EN] NOTE (MVP): Domain coordinates are approximate (genotype A, NC_003977.2).
+[VI] LƯU Ý (MVP): Tọa độ vùng là gần đúng (genotype A, NC_003977.2).
+
+[EN] Usage:
+  annotate_variants.py --sample-id S001 --consensus S001_consensus.fasta \\
+    --alignment S001_aligned.fasta --mutation-db catalogue.tsv \\
+    --out-tsv S001_variants.tsv
+
+[VI] Cách dùng:
+  annotate_variants.py --sample-id M001 --consensus M001_consensus.fasta \\
+    --alignment M001_aligned.fasta --mutation-db catalogue.tsv \\
+    --out-tsv M001_variants.tsv
 """
 
 import argparse
 import csv
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 
+# Kiểm tra Biopython / Check Biopython
 try:
-    from Bio import SeqIO, SeqRecord
+    from Bio import SeqIO
+    from Bio.SeqRecord import SeqRecord
     from Bio.Seq import Seq
 except ImportError:
     sys.exit(
-        "[ERROR] Biopython not found. Install with: conda install -c conda-forge biopython"
+        "[ERROR] Biopython chưa được cài đặt / Biopython not found.\n"
+        "Cài đặt / Install: conda install -c conda-forge biopython"
     )
 
-# ---------------------------------------------------------------------------
-# HBV domain coordinates (approximate, based on NC_003977.2 genotype A)
-# S-gene nt positions (1-based, within the full genome 3182 nt)
-# pre-S1: 2848–3204 + 1–57  (spans origin)
-# pre-S2: 3205–3204+57 / simplified below as pre-S2 start within our amplicon
-# S:      155–835 (relative to preS1 start in a typical ~1245 bp amplicon)
-# MHR:    S aa 99–169
-# a-det:  S aa 124–147
-# ---------------------------------------------------------------------------
+# ─── Bản đồ tọa độ vùng HBV (tính gần đúng, dựa trên amplicon ~1245 bp)
+# [EN] HBV domain coordinate map (approximate, based on ~1245 bp preS1-S amplicon)
+# [VI] Bản đồ tọa độ vùng HBV (gần đúng, dựa trên amplicon preS1-S ~1245 bp)
+# Định dạng: (vị_trí_bắt_đầu_nt_0_based, vị_trí_kết_thúc_exclusive)
 DOMAIN_MAP = {
-    # (start_nt_in_amplicon_0based, end_exclusive, label)
-    # These are approximate positions within a ~1245 bp preS1–S amplicon
-    "preS1":        (0,   400),
-    "preS2":        (400, 550),
-    "S":            (550, 1245),
-    "MHR":          (850, 1057),   # approximately S codons 99–169 within amplicon
-    "a_determinant":(922, 991),    # approximately S codons 124–147
+    "preS1":         (0,    400),
+    "preS2":         (400,  550),
+    "S":             (550, 1245),
+    "MHR":           (850, 1057),   # S codon ~99-169
+    "a_determinant": (922,  991),   # S codon ~124-147
 }
 
 
+def _progress(msg: str):
+    """
+    [EN] Print a timestamped progress message to stderr.
+    [VI] In thông báo tiến trình có dấu thời gian ra stderr.
+    """
+    ts = datetime.now(timezone.utc).strftime("%H:%M:%S")
+    print(f"  [{ts}] {msg}", file=sys.stderr)
+
+
 def parse_args():
-    p = argparse.ArgumentParser(description="Annotate HBV consensus variants against OBI catalogue.")
+    """
+    [EN] Parse command-line arguments.
+    [VI] Phân tích tham số dòng lệnh.
+    """
+    p = argparse.ArgumentParser(
+        description=(
+            "[EN] Annotate HBV consensus variants against OBI catalogue.\n"
+            "[VI] Chú thích biến thể đồng thuận HBV theo danh mục OBI."
+        )
+    )
     p.add_argument("--sample-id",   required=True, dest="sample_id")
-    p.add_argument("--consensus",   required=True, help="Per-sample consensus FASTA")
-    p.add_argument("--alignment",   required=True, help="MAFFT alignment FASTA (consensus + refs)")
-    p.add_argument("--mutation-db", required=True, dest="mutation_db")
-    p.add_argument("--out-tsv",     required=True, dest="out_tsv")
+    p.add_argument("--consensus",   required=True,
+                   help="[EN] Per-sample consensus FASTA / [VI] FASTA đồng thuận mẫu")
+    p.add_argument("--alignment",   required=True,
+                   help="[EN] MAFFT alignment FASTA (consensus+refs) / [VI] Alignment MAFFT")
+    p.add_argument("--mutation-db", required=True, dest="mutation_db",
+                   help="[EN] OBI mutation catalogue TSV / [VI] Danh mục đột biến OBI TSV")
+    p.add_argument("--out-tsv",     required=True, dest="out_tsv",
+                   help="[EN] Output variant annotation TSV / [VI] TSV chú thích biến thể đầu ra")
     return p.parse_args()
 
 
 def read_fasta_dict(path: str) -> dict[str, str]:
-    """Return {seq_id: sequence_no_gaps} dict from a FASTA file."""
+    """
+    [EN] Return {seq_id: sequence_no_gaps} from a FASTA file.
+    [VI] Trả về {seq_id: trình_tự_không_gap} từ tệp FASTA.
+    """
     records = {}
     try:
         for rec in SeqIO.parse(path, "fasta"):
             records[rec.id] = str(rec.seq).upper()
     except Exception as exc:  # noqa: BLE001
-        print(f"[WARN] Could not read FASTA '{path}': {exc}", file=sys.stderr)
+        _progress(f"[annotate_variants] CẢNH BÁO / WARN: Không đọc được FASTA '{path}': {exc}")
     return records
 
 
 def read_alignment(path: str) -> dict[str, str]:
-    """Return {seq_id: gapped_sequence} from a multiple alignment FASTA."""
+    """
+    [EN] Return {seq_id: gapped_sequence} from a multiple alignment FASTA.
+    [VI] Trả về {seq_id: trình_tự_có_gap} từ tệp alignment FASTA.
+    """
     records = {}
     try:
         for rec in SeqIO.parse(path, "fasta"):
             records[rec.id] = str(rec.seq).upper()
     except Exception as exc:  # noqa: BLE001
-        print(f"[WARN] Could not read alignment '{path}': {exc}", file=sys.stderr)
+        _progress(f"[annotate_variants] CẢNH BÁO / WARN: Không đọc được alignment '{path}': {exc}")
     return records
 
 
 def load_mutation_catalogue(path: str) -> list[dict]:
     """
-    Load the OBI mutation catalogue TSV.
-    Expected columns:
-      aa_position, ref_aa, alt_aa, region, mechanism, evidence_level, notes
+    [EN] Load the OBI mutation catalogue TSV.
+         Expected columns: aa_position, ref_aa, alt_aa, region, mechanism,
+                           evidence_level, notes
+    [VI] Tải danh mục đột biến OBI từ tệp TSV.
+         Cột mong đợi: aa_position, ref_aa, alt_aa, region, mechanism,
+                        evidence_level, notes
     """
     catalogue = []
     try:
@@ -112,49 +148,57 @@ def load_mutation_catalogue(path: str) -> list[dict]:
                     pass
                 catalogue.append(row)
     except FileNotFoundError:
-        print(f"[WARN] Mutation catalogue not found: {path}", file=sys.stderr)
+        _progress(f"[annotate_variants] CẢNH BÁO / WARN: Không tìm thấy danh mục / Catalogue not found: {path}")
     return catalogue
 
 
 def find_reference_id(alignment: dict[str, str], sample_id: str) -> str | None:
-    """Pick the reference sequence from the alignment (not the sample)."""
+    """
+    [EN] Pick the reference sequence from the alignment (not the sample).
+         Prefers sequences with accession-like IDs (NC_, AB_, AY_, JN_...).
+    [VI] Chọn trình tự tham chiếu từ alignment (không phải mẫu).
+         Ưu tiên ID dạng số hiệu (NC_, AB_, AY_, JN_...).
+    """
     for seq_id in alignment:
         if seq_id == sample_id:
             continue
         if any(kw in seq_id.upper() for kw in ("REF", "REFERENCE", "NC_", "AB_", "AY_", "JN_")):
             return seq_id
-    # Fallback: first non-sample sequence
+    # Dự phòng: chuỗi không phải mẫu đầu tiên / Fallback: first non-sample sequence
     for seq_id in alignment:
         if seq_id != sample_id:
             return seq_id
     return None
 
 
-def degap_and_map(gapped: str) -> tuple[str, list[int]]:
-    """
-    Return (ungapped_seq, map_ungapped_to_alignment_pos).
-    map_ungapped_to_alignment_pos[i] = alignment column index for ungapped position i.
-    """
-    ungapped = []
-    pos_map = []
-    for col_idx, base in enumerate(gapped):
-        if base != "-":
-            pos_map.append(col_idx)
-            ungapped.append(base)
-    return "".join(ungapped), pos_map
-
-
 def translate_frame(nt_seq: str, frame: int = 0) -> str:
-    """Translate a nucleotide string starting at *frame* offset."""
+    """
+    [EN] Translate a nucleotide string starting at *frame* offset.
+    [VI] Dịch mã chuỗi nucleotide bắt đầu từ offset *frame*.
+    """
     sub = nt_seq[frame:]
-    # Pad to multiple of 3
     remainder = len(sub) % 3
     if remainder:
-        sub += "N" * (3 - remainder)
+        sub += "N" * (3 - remainder)  # Đệm để chia hết 3 / Pad to multiple of 3
     try:
         return str(Seq(sub).translate(to_stop=False))
     except Exception:  # noqa: BLE001
         return ""
+
+
+def _domain_label(nt_pos_in_amplicon: int) -> str:
+    """
+    [EN] Return the most specific domain label for a nucleotide position.
+         Priority order: a_determinant > MHR > S > preS2 > preS1
+    [VI] Trả về nhãn vùng cụ thể nhất cho một vị trí nucleotide.
+         Thứ tự ưu tiên: a_determinant > MHR > S > preS2 > preS1
+    """
+    priority_order = ["a_determinant", "MHR", "S", "preS2", "preS1"]
+    for name in priority_order:
+        start, end = DOMAIN_MAP[name]
+        if start <= nt_pos_in_amplicon < end:
+            return name
+    return "outside_amplicon"
 
 
 def annotate(
@@ -164,30 +208,28 @@ def annotate(
     catalogue: list[dict],
 ) -> list[dict]:
     """
-    Compare consensus_seq vs ref_seq (both ungapped) and look up variants
-    in the OBI catalogue.
-
-    Returns list of variant dicts.
+    [EN] Compare consensus_seq vs ref_seq (both ungapped) and look up variants
+         in the OBI catalogue. Returns list of variant annotation dicts.
+    [VI] So sánh consensus_seq với ref_seq (cả hai không có gap) và tra cứu
+         biến thể trong danh mục OBI. Trả về danh sách dict chú thích biến thể.
     """
     variants = []
 
-    # Translate S region (approximate frame; frame=0 for the amplicon)
-    # In a full preS1–S amplicon, the S ORF typically starts around nt 550
-    s_start = DOMAIN_MAP["S"][0]
-    cons_s = consensus_seq[s_start:] if len(consensus_seq) > s_start else ""
-    ref_s  = ref_seq[s_start:]       if len(ref_seq)  > s_start else ""
+    # ── Dịch mã vùng S / Translate S region ──────────────────────────────────
+    s_start  = DOMAIN_MAP["S"][0]
+    cons_s   = consensus_seq[s_start:] if len(consensus_seq) > s_start else ""
+    ref_s    = ref_seq[s_start:]       if len(ref_seq) > s_start else ""
+    cons_aa  = translate_frame(cons_s, 0) if cons_s else ""
+    ref_aa   = translate_frame(ref_s,  0) if ref_s  else ""
 
-    cons_aa = translate_frame(cons_s, 0) if cons_s else ""
-    ref_aa  = translate_frame(ref_s,  0) if ref_s  else ""
-
-    # Build lookup: {aa_pos: {ref_aa: catalogue_entry}}
+    # ── Xây dựng tra cứu theo vị trí / Build catalogue lookup by position ────
     cat_by_pos: dict[int, list[dict]] = {}
     for entry in catalogue:
         pos = entry.get("aa_position")
         if isinstance(pos, int):
             cat_by_pos.setdefault(pos, []).append(entry)
 
-    # Scan amino acid differences
+    # ── Quét thay đổi amino acid / Scan amino acid changes ───────────────────
     max_len = min(len(cons_aa), len(ref_aa))
     for aa_pos in range(max_len):
         c_aa = cons_aa[aa_pos]
@@ -196,11 +238,11 @@ def annotate(
             continue
 
         pos_1based = aa_pos + 1
-        domain = _domain_label(s_start + aa_pos * 3)
+        domain     = _domain_label(s_start + aa_pos * 3)
 
-        # Look up in catalogue
+        # Tra cứu trong danh mục / Lookup in catalogue
         cat_entries = cat_by_pos.get(pos_1based, [])
-        matched = [e for e in cat_entries if e.get("alt_aa", "").upper() == c_aa]
+        matched     = [e for e in cat_entries if e.get("alt_aa", "").upper() == c_aa]
 
         if matched:
             for e in matched:
@@ -219,7 +261,7 @@ def annotate(
                     }
                 )
         else:
-            # Novel / uncatalogued variant
+            # Biến thể mới / không có trong danh mục / Novel / uncatalogued variant
             variants.append(
                 {
                     "sample_id":      sample_id,
@@ -229,16 +271,17 @@ def annotate(
                     "notation":       f"s{r_aa}{pos_1based}{c_aa}",
                     "domain":         domain,
                     "mechanism":      "unknown",
-                    "evidence_level": "C",  # novel / uncatalogued
+                    "evidence_level": "C",   # Mới / Novel
                     "notes":          "not_in_obi_catalogue",
                     "catalogued":     "no",
                 }
             )
 
-    # Check for premature stop codons in S
-    stop_positions = [i + 1 for i, aa in enumerate(cons_aa) if aa == "*"]
-    expected_s_len = len(ref_aa)
-    premature_stops = [p for p in stop_positions if p < expected_s_len]
+    # ── Kiểm tra codon dừng sớm / Check for premature stop codons ─────────────
+    stop_positions    = [i + 1 for i, aa in enumerate(cons_aa) if aa == "*"]
+    expected_s_len    = len(ref_aa)
+    premature_stops   = [p for p in stop_positions if p < expected_s_len]
+
     for p in premature_stops:
         variants.append(
             {
@@ -258,24 +301,26 @@ def annotate(
     return variants
 
 
-def _domain_label(nt_pos_in_amplicon: int) -> str:
-    # Check most-specific (smallest range) domains first
-    priority_order = ["a_determinant", "MHR", "S", "preS2", "preS1"]
-    for name in priority_order:
-        start, end = DOMAIN_MAP[name]
-        if start <= nt_pos_in_amplicon < end:
-            return name
-    return "outside_amplicon"
-
-
 def main():
     args = parse_args()
 
-    consensus_seqs = read_fasta_dict(args.consensus)
-    alignment = read_alignment(args.alignment)
-    catalogue = load_mutation_catalogue(args.mutation_db)
+    _progress(
+        f"[annotate_variants] === Bắt đầu chú thích biến thể / Starting variant annotation: "
+        f"{args.sample_id} ==="
+    )
 
-    # Get consensus sequence (ungapped)
+    # ─── Bước 1: Đọc dữ liệu vào / Step 1: Load inputs ──────────────────────
+    _progress(f"[annotate_variants] Đọc trình tự đồng thuận / Reading consensus: {args.consensus}")
+    consensus_seqs = read_fasta_dict(args.consensus)
+
+    _progress(f"[annotate_variants] Đọc alignment / Reading alignment: {args.alignment}")
+    alignment = read_alignment(args.alignment)
+
+    _progress(f"[annotate_variants] Đọc danh mục đột biến / Loading catalogue: {args.mutation_db}")
+    catalogue = load_mutation_catalogue(args.mutation_db)
+    _progress(f"[annotate_variants] Danh mục / Catalogue: {len(catalogue)} mục nhập / entries")
+
+    # ─── Bước 2: Xác định trình tự đồng thuận / Step 2: Identify consensus ───
     cons_seq = ""
     for sid, seq in consensus_seqs.items():
         if args.sample_id in sid or sid == args.sample_id:
@@ -283,28 +328,36 @@ def main():
             break
     if not cons_seq and consensus_seqs:
         cons_seq = list(consensus_seqs.values())[0].replace("-", "")
+    _progress(f"[annotate_variants] Đồng thuận / Consensus: {len(cons_seq)} bp")
 
-    ref_id = find_reference_id(alignment, args.sample_id)
+    # ─── Bước 3: Xác định tham chiếu / Step 3: Identify reference ────────────
+    ref_id  = find_reference_id(alignment, args.sample_id)
     ref_seq = alignment.get(ref_id, "").replace("-", "") if ref_id else ""
+    _progress(
+        f"[annotate_variants] Tham chiếu / Reference: "
+        f"'{ref_id}' ({len(ref_seq)} bp)"
+    )
 
+    # ─── Bước 4: Chú thích biến thể / Step 4: Annotate variants ─────────────
     if not cons_seq:
-        print(
-            f"[annotate_variants] WARN: {args.sample_id}: empty consensus – "
-            "no variants to annotate",
-            file=sys.stderr,
+        _progress(
+            f"[annotate_variants] CẢNH BÁO / WARN: {args.sample_id}: "
+            "trình tự đồng thuận rỗng – bỏ qua chú thích / "
+            "empty consensus – skipping annotation"
         )
         variants = []
     elif not ref_seq:
-        print(
-            f"[annotate_variants] WARN: {args.sample_id}: no reference sequence "
-            "in alignment – skipping annotation",
-            file=sys.stderr,
+        _progress(
+            f"[annotate_variants] CẢNH BÁO / WARN: {args.sample_id}: "
+            "không tìm thấy tham chiếu trong alignment – bỏ qua / "
+            "no reference in alignment – skipping"
         )
         variants = []
     else:
+        _progress("[annotate_variants] Dịch mã và so sánh amino acid / Translating and comparing amino acids...")
         variants = annotate(args.sample_id, cons_seq, ref_seq, catalogue)
 
-    # Write output TSV
+    # ─── Bước 5: Ghi TSV / Step 5: Write TSV ────────────────────────────────
     fieldnames = [
         "sample_id", "aa_position", "ref_aa", "alt_aa", "notation",
         "domain", "mechanism", "evidence_level", "notes", "catalogued",
@@ -314,9 +367,25 @@ def main():
         writer.writeheader()
         writer.writerows(variants)
 
-    print(
-        f"[annotate_variants] {args.sample_id}: {len(variants)} variant(s) annotated",
-        file=sys.stderr,
+    # Tóm tắt kết quả / Result summary
+    n_a = sum(1 for v in variants if v.get("evidence_level") == "A")
+    n_b = sum(1 for v in variants if v.get("evidence_level") == "B")
+    n_c = sum(1 for v in variants if v.get("evidence_level") == "C")
+
+    _progress(
+        f"[annotate_variants] Kết quả / Results: {len(variants)} biến thể / variant(s) | "
+        f"Mức A={n_a}, B={n_b}, C={n_c}"
+    )
+    if n_a > 0:
+        a_variants = [v["notation"] for v in variants if v.get("evidence_level") == "A"]
+        _progress(
+            f"[annotate_variants] *** CẢNH BÁO / REVIEW REQUIRED: "
+            f"Biến thể mức A / Level-A variants: {', '.join(a_variants)} ***"
+        )
+
+    _progress(
+        f"[annotate_variants] === Hoàn thành chú thích / Annotation complete: "
+        f"{args.sample_id} ==="
     )
 
 
