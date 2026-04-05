@@ -1,0 +1,4 @@
+sample_id,ab1_forward,ab1_reverse
+SAMP001,/path/to/data/SAMP001_forward.ab1,/path/to/data/SAMP001_reverse.ab1
+SAMP002,/path/to/data/SAMP002_forward.ab1,/path/to/data/SAMP002_reverse.ab1
+SAMP003_single_read,/path/to/data/SAMP003_forward.ab1,
